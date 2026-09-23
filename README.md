@@ -22,6 +22,7 @@ python3 -m seedscout web            # interfaz en http://127.0.0.1:5055
 python3 -m seedscout gen            # una semilla aleatoria, por consola
 python3 -m seedscout gen 12345 --radius 512 --save --notes "aldea junto al río"
 python3 -m seedscout render <mundo> --out mapa.png   # mapa de un mundo ya existente
+python3 -m seedscout clean          # borra mundos de trabajo que hayan quedado
 python3 -m seedscout config --write # escribe ~/.config/seedscout/config.json
 ./check.sh                          # sintaxis + importaciones + tests
 ```
@@ -66,6 +67,11 @@ estar en esa instalación.
 SeedScout nunca escribe en la instalación base: `mods/` y `libraries/` se enlazan por symlink y
 `config/` se copia al directorio de trabajo de cada semilla. El servidor se para siempre con el
 comando `stop`, nunca matando el proceso.
+
+El mundo de trabajo (unos 190 MB por semilla) **se borra solo** en cuanto se ha leído y dibujado el
+mapa; el mapa queda en memoria, así que guardar con notas después no lo necesita. Se conserva
+poniendo `keep_worlds` a `true` en la configuración, y `clean` limpia lo que haya quedado de
+ejecuciones interrumpidas. El borrado no sigue los symlinks: la instalación del modpack no se toca.
 
 ## Estructura
 

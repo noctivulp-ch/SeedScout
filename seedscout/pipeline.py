@@ -1,13 +1,15 @@
 """Une las piezas: semilla → mundo generado → mapa + datos, listo para guardar."""
 from __future__ import annotations
 
+import shutil
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from .city import clusters, scan
 from .config import Config
-from .render import render_biomes, with_overlay
+from .render import MapImage, render_biomes, with_overlay
 from .runner import RunState, WorldRunner, random_seed
 from .world import sample_world
 
@@ -22,6 +24,9 @@ class Scan:
     map_png: Path
     share_png: Path
     world_dir: Path
+    # El mapa se guarda dibujado porque el mundo de trabajo se borra en cuanto se ha leído:
+    # rehacer la imagen para compartir con las notas no puede depender de que siga existiendo.
+    rendered: MapImage | None = None
 
     def data(self) -> dict:
         return {
@@ -66,6 +71,7 @@ class Pipeline:
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.job: Job | None = None
+        self.on_cleanup: Callable[[int], None] = lambda _mb: None
 
     def start(self, seed: int | None = None, radius: int | None = None) -> Job:
         if self.job and not self.job.snapshot()["done"]:
@@ -105,19 +111,45 @@ class Pipeline:
             job.scan = Scan(
                 seed=job.seed, radius=job.radius, chunks=len(sample.chunks), biomes=biomes,
                 cities=cities, map_png=map_png, share_png=share_png, world_dir=world,
+                rendered=rendered,
             )
+            if not self.config.keep_worlds:
+                job.phase = "limpiando"
+                self.on_cleanup(self.discard(job.seed))
             job.phase = "listo"
             job.progress = 100.0
         except Exception as error:
             job.error = str(error)
             job.phase = "error"
 
+    def discard(self, seed: int) -> int:
+        """Borra el directorio de trabajo de una semilla. Devuelve los MB liberados."""
+        work = Path(self.config.work_dir) / str(seed)
+        if not work.is_dir():
+            return 0
+        # `mods/` y `libraries/` son symlinks: rmtree los borra como enlaces, no sigue a la
+        # instalación base. El resto son copias y el mundo generado.
+        size = sum(f.stat().st_size for f in work.rglob("*") if f.is_file() and not f.is_symlink())
+        shutil.rmtree(work)
+        return size // (1024 * 1024)
+
+    def discard_all(self) -> tuple[int, int]:
+        """Limpia los directorios de trabajo que hayan quedado de ejecuciones anteriores."""
+        root = Path(self.config.work_dir)
+        if not root.is_dir():
+            return 0, 0
+        freed = 0
+        count = 0
+        for folder in list(root.iterdir()):
+            if folder.is_dir():
+                freed += self.discard(int(folder.name)) if folder.name.lstrip("-").isdigit() else 0
+                count += 1
+        return count, freed
+
     def rerender(self, job: Job, notes: str) -> Path:
         """La imagen para compartir se rehace al guardar, para que lleve las notas escritas."""
         scan_result = job.scan
-        if not scan_result:
+        if not scan_result or not scan_result.rendered:
             raise RuntimeError("no hay nada que dibujar todavía")
-        sample = sample_world(scan_result.world_dir)
-        rendered = render_biomes(sample)
-        with_overlay(rendered, job.seed, notes=notes).save(scan_result.share_png)
+        with_overlay(scan_result.rendered, job.seed, notes=notes).save(scan_result.share_png)
         return scan_result.share_png

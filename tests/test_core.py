@@ -72,3 +72,42 @@ def test_clusters_agrupa_chunks_contiguos():
     }
     groups = clusters(found)
     assert [g["chunks"] for g in groups] == [2, 1]
+
+
+def test_discard_borra_el_mundo_sin_tocar_la_instalacion_base(tmp_path):
+    """Por qué: `mods/` del directorio de trabajo es un symlink a la instalación real del modpack.
+
+    Si el borrado siguiera los enlaces, una limpieza rutinaria se llevaría por delante los 1,4 GB
+    de mods del usuario. Esto no se puede descubrir en producción.
+    """
+    from seedscout.config import Config
+    from seedscout.pipeline import Pipeline
+
+    base = tmp_path / "base"
+    (base / "mods").mkdir(parents=True)
+    (base / "mods" / "un-mod.jar").write_bytes(b"no me borres")
+
+    runs = tmp_path / "runs"
+    work = runs / "123"
+    (work / "world").mkdir(parents=True)
+    (work / "world" / "region.mca").write_bytes(b"x" * 2048)
+    (work / "mods").symlink_to(base / "mods")
+
+    pipeline = Pipeline(Config(work_dir=str(runs), base_server=str(base)), tmp_path / "cache")
+    pipeline.discard(123)
+
+    assert not work.exists()
+    assert (base / "mods" / "un-mod.jar").read_bytes() == b"no me borres"
+
+
+def test_discard_all_ignora_lo_que_no_sea_una_semilla(tmp_path):
+    from seedscout.config import Config
+    from seedscout.pipeline import Pipeline
+
+    runs = tmp_path / "runs"
+    (runs / "-456").mkdir(parents=True)
+    (runs / "notas").mkdir()
+    pipeline = Pipeline(Config(work_dir=str(runs)), tmp_path / "cache")
+    count, _freed = pipeline.discard_all()
+    assert count == 2
+    assert not (runs / "-456").exists()

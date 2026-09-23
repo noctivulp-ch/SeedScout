@@ -37,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     conf = sub.add_parser("config", help="muestra o escribe la configuración")
     conf.add_argument("--write", action="store_true")
 
+    sub.add_parser("clean", help="borra los mundos de trabajo que hayan quedado")
+
     args = parser.parse_args(argv)
     config = Config.load()
 
@@ -52,6 +54,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(config.__dict__, indent=2, ensure_ascii=False))
         return 0
 
+    if args.command == "clean":
+        pipeline = Pipeline(config, Path(config.work_dir).parent / "cache")
+        count, freed = pipeline.discard_all()
+        print(f"{count} mundos de trabajo borrados, {freed} MB liberados")
+        return 0
+
     if args.command == "render":
         sample = sample_world(args.world)
         rendered = render_biomes(sample, blocks_per_pixel=args.scale)
@@ -61,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     pipeline = Pipeline(config, Path(config.work_dir).parent / "cache")
+    pipeline.on_cleanup = lambda mb: print(f"  mundo de trabajo borrado ({mb} MB)")
     seed = args.seed if args.seed is not None else random_seed()
     print(f"generando la semilla {seed} (radio {args.radius or config.radius})…")
     job = pipeline.start(seed, args.radius)

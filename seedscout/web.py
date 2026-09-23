@@ -17,6 +17,7 @@ def create_app(config: Config | None = None) -> Flask:
     app = Flask(__name__)
     cache = Path(config.work_dir).parent / "cache"
     pipeline = Pipeline(config, cache)
+    pipeline.on_cleanup = lambda mb: app.logger.info("mundo de trabajo borrado (%s MB)", mb)
     store = SeedStore(Path(config.seeds_dir))
 
     @app.get("/")
@@ -79,6 +80,11 @@ def create_app(config: Config | None = None) -> Flask:
     def delete(seed: int):
         store.delete(seed)
         return jsonify({"ok": True})
+
+    @app.post("/api/clean")
+    def clean():
+        count, freed = pipeline.discard_all()
+        return jsonify({"worlds": count, "freed_mb": freed})
 
     @app.get("/galeria")
     def gallery():
