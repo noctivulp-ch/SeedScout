@@ -54,6 +54,8 @@ def create_app(config: Config | None = None) -> Flask:
         if scan:
             snapshot["result"] = {
                 "chunks": scan.chunks,
+                "spawn": list(scan.spawn) if scan.spawn else None,
+                "size": list(scan.rendered.image.size) if scan.rendered else None,
                 "biomes": [[pretty(name), round(share, 1)] for name, share in scan.biomes[:14]],
                 "cities": scan.cities[:10],
                 "map": f"/api/map/{scan.seed}",
@@ -81,6 +83,19 @@ def create_app(config: Config | None = None) -> Flask:
     def delete(seed: int):
         store.delete(seed)
         return jsonify({"ok": True})
+
+    @app.get("/api/point")
+    def point():
+        """Qué hay bajo el cursor: bioma, bloque, altura y coordenadas del mundo."""
+        job = pipeline.job
+        if not job or not job.scan or not job.scan.rendered:
+            return jsonify({}), 404
+        try:
+            px, py = int(request.args["x"]), int(request.args["y"])
+        except (KeyError, ValueError):
+            return jsonify({"error": "faltan x e y"}), 400
+        found = job.scan.rendered.probe(px, py)
+        return jsonify(found or {})
 
     @app.get("/api/server")
     def server_status():

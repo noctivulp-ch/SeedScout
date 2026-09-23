@@ -60,7 +60,9 @@ textarea { width:100%; min-height:120px; resize:vertical; }
     <h2>Mapa <span id="seedlabel" class="muted"></span></h2>
     <div class="bar"><div id="progress"></div></div>
     <p class="status" id="status">Escribe una semilla o pulsa Generar para sortear una.</p>
-    <div id="mapwrap"><span id="placeholder">Sin mapa todavía</span><img id="map" hidden alt="mapa de biomas"></div>
+    <div id="mapwrap"><span id="placeholder">Sin mapa todavía</span><img id="map" hidden alt="mapa del mundo"></div>
+    <p class="status" id="hover">Pasa el ratón por el mapa para ver el bioma.</p>
+    <p class="hint" id="spawnline"></p>
   </section>
 
   <aside style="display:grid; gap:16px">
@@ -147,6 +149,10 @@ async function poll() {
       ? data.result.cities.map(c => `<li><b>${c.chunks} chunks</b><span>${c.center[0]}, ${c.center[1]}</span></li>`).join('')
       : '<li class="muted">ninguna en el radio</li>';
     $('save').disabled = false;
+    mapSize = data.result.size;
+    $('spawnline').textContent = data.result.spawn
+      ? `Spawn en x ${data.result.spawn[0]}, z ${data.result.spawn[1]} — recuadrado en el mapa.`
+      : '';
   }
   if (data.done) { clearInterval(polling); polling = null; $('go').disabled = false; }
 }
@@ -165,6 +171,25 @@ $('go').onclick = async () => {
   if (!polling) polling = setInterval(poll, 2000);
   poll();
 };
+
+let mapSize = null;
+let hoverBusy = false;
+
+$('map').onmousemove = async (event) => {
+  if (!mapSize || hoverBusy) return;
+  const rect = event.target.getBoundingClientRect();
+  const px = Math.floor((event.clientX - rect.left) / rect.width * mapSize[0]);
+  const py = Math.floor((event.clientY - rect.top) / rect.height * mapSize[1]);
+  hoverBusy = true;
+  try {
+    const res = await fetch(`/api/point?x=${px}&y=${py}`);
+    const d = await res.json();
+    if (d && d.biome) {
+      $('hover').textContent = `${d.biome} · ${d.block} · y ${d.y} · x ${d.x}, z ${d.z}`;
+    }
+  } finally { hoverBusy = false; }
+};
+$('map').onmouseleave = () => { $('hover').textContent = 'Pasa el ratón por el mapa para ver el bioma.'; };
 
 $('save').onclick = async () => {
   $('save').disabled = true;

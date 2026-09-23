@@ -18,6 +18,8 @@ class Config:
     jvm_args: list[str] = field(default_factory=lambda: ["-Xms2G", "-Xmx6G"])
     work_dir: str = str(Path.home() / ".local" / "share" / "seedscout" / "runs")
     seeds_dir: str = str(Path.home() / "Documentos" / "Minecraft" / "SeedScout")
+    # Jar del cliente: de ahí salen los colores de bloque y los colormaps de hierba y follaje.
+    client_jar: str = "/media/sotano/Juegos/Fijos/Minecraft/PrismLauncher/libraries/com/mojang/minecraft/1.20.1/minecraft-1.20.1-client.jar"
     radius: int = 768
     game_port: int = 25599
     view_distance: int = 6

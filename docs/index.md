@@ -6,4 +6,5 @@
   - [0002 — Detectar ciudades por bloques manufacturados](decisiones/0002-ciudades-por-bloques.md)
   - [0003 — `mods/` se enlaza jar a jar, no como carpeta](decisiones/0003-mods-enlazados-uno-a-uno.md)
   - [0004 — El servidor se queda vivo entre generaciones](decisiones/0004-servidor-persistente.md)
+  - [0005 — El mapa se pinta por bloque de superficie, no por bioma](decisiones/0005-render-por-bloque.md)
 - [Funciones: qué hace cada parte](funciones/app.md)

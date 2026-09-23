@@ -145,3 +145,39 @@ def test_no_se_borra_un_mundo_que_el_servidor_tiene_abierto(tmp_path):
     pipeline.runner = VivoConSemilla()  # type: ignore[assignment]
     with pytest.raises(RuntimeError, match="párelo primero"):
         pipeline.discard(42)
+
+
+def test_probe_devuelve_bioma_bloque_y_coordenadas_del_mundo():
+    """Por qué: es lo que se lee al pasar el ratón; si el origen o la escala se descuadran,
+    el usuario apunta a un sitio y se le nombra otro, sin que nada falle de forma visible."""
+    import numpy as np
+    from PIL import Image
+
+    from seedscout.render import MapImage
+
+    rendered = MapImage(
+        image=Image.new("RGB", (4, 4)), blocks_per_pixel=2, origin=(-64, 32), legend=[],
+        biome_at=np.array([[0, 0, 1, 1]] * 4, dtype=np.int32),
+        height_at=np.full((4, 4), 71, dtype=np.int32),
+        block_at=np.zeros((4, 4), dtype=np.int32),
+        names=["minecraft:plains", "biomesoplenty:volcano"],
+        block_names=["minecraft:grass_block"],
+    )
+    found = rendered.probe(3, 1)
+    assert found["biome"] == "Volcano"
+    assert found["block"] == "Grass Block"
+    assert (found["x"], found["z"]) == (-64 + 3 * 2, 32 + 1 * 2)
+    assert rendered.probe(99, 0) is None
+
+
+def test_mark_spawn_dibuja_el_recuadro_en_el_chunk_del_spawn():
+    from PIL import Image
+
+    from seedscout.render import SPAWN_OUTLINE, MapImage, mark_spawn
+
+    rendered = MapImage(image=Image.new("RGB", (64, 64), (0, 0, 0)), blocks_per_pixel=2,
+                        origin=(0, 0), legend=[])
+    mark_spawn(rendered, (40, 40))  # chunk 2,2 → píxeles 16..23
+    pixels = rendered.image.load()
+    assert pixels[16, 16] == SPAWN_OUTLINE, "la esquina del chunk del spawn debe quedar marcada"
+    assert pixels[60, 60] == (0, 0, 0), "fuera del spawn no se pinta nada"

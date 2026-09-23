@@ -7,11 +7,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from .biomeinfo import BiomeLook, load as load_biomes
+from .blockcolors import build as build_block_colors
 from .city import clusters, scan
 from .config import Config
-from .render import MapImage, render_biomes, with_overlay
+from .render import MapImage, render_terrain, with_overlay
 from .runner import RunState, WorldRunner, random_seed
-from .world import sample_world
+from .world import read_spawn, sample_world
 
 
 @dataclass
@@ -21,6 +23,7 @@ class Scan:
     chunks: int
     biomes: list[tuple[str, float]]
     cities: list[dict]
+    spawn: tuple[int, int] | None
     map_png: Path
     share_png: Path
     world_dir: Path
@@ -35,6 +38,7 @@ class Scan:
             "chunks": self.chunks,
             "biomas": self.biomes,
             "ciudades": self.cities,
+            "spawn": list(self.spawn) if self.spawn else None,
         }
 
 
@@ -74,6 +78,18 @@ class Pipeline:
         self.on_cleanup: Callable[[int], None] = lambda _mb: None
         self.runner = WorldRunner(config, on_update=self._update)
         self._current: Job | None = None
+        self._block_colors: dict[str, tuple[int, int, int]] | None = None
+        self._biome_looks: dict[str, BiomeLook] | None = None
+
+    def palettes(self) -> tuple[dict, dict]:
+        """Colores de bloque y de bioma, sacados una vez de los jars del modpack."""
+        if self._block_colors is None or self._biome_looks is None:
+            client = Path(self.config.client_jar)
+            mods = sorted((Path(self.config.base_server) / "mods").glob("*.jar"))
+            jars = ([client] if client.exists() else []) + mods
+            self._block_colors = build_block_colors(jars)
+            self._biome_looks = load_biomes(mods, client if client.exists() else None)
+        return self._block_colors, self._biome_looks
 
     def _update(self, state: RunState) -> None:
         job = self._current
@@ -129,7 +145,9 @@ class Pipeline:
             job.phase = "buscando ciudades"
             cities = clusters(scan(world))
             job.phase = "dibujando"
-            rendered = render_biomes(sample)
+            spawn = read_spawn(world)
+            block_colors, biome_looks = self.palettes()
+            rendered = render_terrain(sample, block_colors, biome_looks, spawn=spawn)
             total = sum(count for _, count in rendered.legend) or 1
             biomes = [(name, 100.0 * count / total) for name, count in rendered.legend]
             map_png = self.cache_dir / f"{job.seed}.png"
@@ -138,7 +156,7 @@ class Pipeline:
             with_overlay(rendered, job.seed).save(share_png)
             job.scan = Scan(
                 seed=job.seed, radius=job.radius, chunks=len(sample.chunks), biomes=biomes,
-                cities=cities, map_png=map_png, share_png=share_png, world_dir=world,
+                cities=cities, spawn=spawn, map_png=map_png, share_png=share_png, world_dir=world,
                 rendered=rendered,
             )
             if not self.config.keep_worlds and not self.runner.alive:

@@ -6,6 +6,12 @@ Explorador de semillas para modpacks pesados de Minecraft, empezando por **Decea
 Genera el mundo **de verdad** con el servidor del modpack y dibuja su mapa. No simula la
 generación: la ejecuta.
 
+El mapa se pinta como los mapeadores del juego: color del bloque de superficie sacado de las
+texturas, tinte de bioma en hierba y follaje, agua oscurecida por profundidad y sombreado de
+pendiente. El chunk del spawn va recuadrado, y al pasar el ratón por el mapa se lee el bioma, el
+bloque, la altura y las coordenadas. El porqué y las referencias, en
+[ADR 0005](docs/decisiones/0005-render-por-bloque.md).
+
 ## Por qué no vale Chunkbase ni Amidst
 
 Esas herramientas reimplementan la generación de Minecraft vanilla. DeceasedCraft mete
