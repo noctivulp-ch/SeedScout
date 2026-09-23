@@ -49,9 +49,27 @@ class RunState:
 
 
 class WorldRunner:
+    """Mantiene **un** servidor vivo entre generaciones.
+
+    La semilla se fija al crear el mundo, así que cambiar de semilla obliga a reiniciar: eso no
+    tiene vuelta de hoja en Forge. Lo que sí se evita es el arranque de 83 s cuando se vuelve a
+    generar sobre la misma semilla (ampliar el radio) o cuando se para y arranca a mano.
+    """
+
     def __init__(self, config: Config, on_update: Callable[[RunState], None] | None = None):
         self.config = config
         self.on_update = on_update or (lambda _state: None)
+        self.process: subprocess.Popen | None = None
+        self.seed: int | None = None
+        self.work: Path | None = None
+        self.log_path: Path | None = None
+        self._booted = threading.Event()
+        self._chunky_done = threading.Event()
+        self._state: RunState | None = None
+
+    @property
+    def alive(self) -> bool:
+        return self.process is not None and self.process.poll() is None
 
     def prepare(self, seed: int) -> Path:
         base = Path(self.config.base_server)
@@ -113,79 +131,112 @@ class WorldRunner:
         )
         return "\n".join(f"{k}={v}" for k, v in sorted(values.items())) + "\n"
 
-    def generate(self, seed: int, radius: int | None = None) -> RunState:
-        radius = radius or self.config.radius
-        state = RunState(seed=seed, phase="preparando")
-        self.on_update(state)
-        work = self.prepare(seed)
-        state.world_dir = work / "world"
-        log_path = work / "seedscout.log"
-        state.log_path = log_path
+    def _send(self, line: str) -> None:
+        if not self.alive:
+            raise RuntimeError("el servidor no está arrancado")
+        self.process.stdin.write(line + "\n")  # type: ignore[union-attr]
+        self.process.stdin.flush()  # type: ignore[union-attr]
 
-        command = [self.config.java, *self.config.jvm_args, f"@{self.config.forge_args}", "nogui"]
+    def _pump(self) -> None:
+        with self.log_path.open("w") as log:  # type: ignore[union-attr]
+            for line in self.process.stdout:  # type: ignore[union-attr]
+                log.write(line)
+                log.flush()
+                state = self._state
+                if not self._booted.is_set() and DONE_RE.search(line):
+                    self._booted.set()
+                if "Chunky" in line and state:
+                    found = PROGRESS_RE.search(line)
+                    if found:
+                        state.progress = float(found.group(1).replace(",", "."))
+                        state.message = line.strip()[-120:]
+                        self.on_update(state)
+                    if CHUNKY_DONE_RE.search(line):
+                        self._chunky_done.set()
+
+    def start(self, seed: int, state: RunState | None = None) -> None:
+        """Arranca el servidor para esa semilla. Si ya está vivo con otra, lo para antes."""
+        if self.alive and self.seed == seed:
+            return
+        if self.alive:
+            self.stop()
+        state = state or RunState(seed=seed)
+        self._state = state
+        self._booted.clear()
+        state.phase = "preparando"
+        self.on_update(state)
+        self.work = self.prepare(seed)
+        self.seed = seed
+        self.log_path = self.work / "seedscout.log"
+        state.world_dir = self.work / "world"
+        state.log_path = self.log_path
+
         state.phase = "arrancando"
         self.on_update(state)
-        process = subprocess.Popen(
-            command, cwd=work, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        command = [self.config.java, *self.config.jvm_args, f"@{self.config.forge_args}", "nogui"]
+        self.process = subprocess.Popen(
+            command, cwd=self.work, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, bufsize=1,
         )
+        threading.Thread(target=self._pump, daemon=True).start()
+        if not self._booted.wait(self.config.boot_timeout_s):
+            self.stop()
+            raise TimeoutError(f"el servidor no arrancó en {self.config.boot_timeout_s}s")
+        state.phase = "servidor listo"
+        self.on_update(state)
 
-        booted = threading.Event()
-        chunky_done = threading.Event()
-
-        def pump() -> None:
-            with log_path.open("w") as log:
-                for line in process.stdout:  # type: ignore[union-attr]
-                    log.write(line)
-                    log.flush()
-                    if not booted.is_set() and DONE_RE.search(line):
-                        booted.set()
-                    if "Chunky" in line:
-                        found = PROGRESS_RE.search(line)
-                        if found:
-                            state.progress = float(found.group(1).replace(",", "."))
-                            state.message = line.strip()[-120:]
-                            self.on_update(state)
-                        if CHUNKY_DONE_RE.search(line):
-                            chunky_done.set()
-
-        reader = threading.Thread(target=pump, daemon=True)
-        reader.start()
-
-        def send(command_line: str) -> None:
-            process.stdin.write(command_line + "\n")  # type: ignore[union-attr]
-            process.stdin.flush()  # type: ignore[union-attr]
-
+    def stop(self) -> None:
+        """Siempre por consola: matar el proceso deja regiones a medio escribir."""
+        if not self.alive:
+            self.process = None
+            self.seed = None
+            return
         try:
-            if not booted.wait(self.config.boot_timeout_s):
-                raise TimeoutError(f"el servidor no arrancó en {self.config.boot_timeout_s}s")
-            state.phase = "generando"
-            state.message = f"Chunky, radio {radius} bloques"
-            self.on_update(state)
-            send("chunky world minecraft:overworld")
-            send("chunky center 0 0")
-            send(f"chunky radius {radius}")
-            send("chunky start")
-            if not chunky_done.wait(self.config.chunky_timeout_s):
-                send("chunky cancel")
-                raise TimeoutError(f"Chunky no terminó en {self.config.chunky_timeout_s}s")
-            state.phase = "guardando"
-            state.progress = 100.0
-            self.on_update(state)
-            send("save-all flush")
-            time.sleep(5)
-        except Exception as error:  # se apaga igual, para no dejar el mundo a medias
+            self._send("save-all flush")
+            self._send("stop")
+        except Exception:
+            pass
+        try:
+            self.process.wait(timeout=180)  # type: ignore[union-attr]
+        except subprocess.TimeoutExpired:
+            pass
+        self.process = None
+        self.seed = None
+
+    def pregenerate(self, radius: int, state: RunState) -> None:
+        self._chunky_done.clear()
+        self._state = state
+        state.phase = "generando"
+        state.progress = 0.0
+        state.message = f"Chunky, radio {radius} bloques"
+        self.on_update(state)
+        self._send("chunky world minecraft:overworld")
+        self._send("chunky center 0 0")
+        self._send(f"chunky radius {radius}")
+        self._send("chunky start")
+        if not self._chunky_done.wait(self.config.chunky_timeout_s):
+            self._send("chunky cancel")
+            raise TimeoutError(f"Chunky no terminó en {self.config.chunky_timeout_s}s")
+        state.phase = "guardando"
+        state.progress = 100.0
+        self.on_update(state)
+        self._send("save-all flush")
+        time.sleep(5)
+
+    def generate(self, seed: int, radius: int | None = None, keep_alive: bool = True) -> RunState:
+        """Genera (o amplía) el mundo de una semilla. Deja el servidor vivo salvo que se diga lo contrario."""
+        radius = radius or self.config.radius
+        state = RunState(seed=seed)
+        self.on_update(state)
+        try:
+            self.start(seed, state)
+            self.pregenerate(radius, state)
+        except Exception as error:
             state.error = str(error)
-        finally:
+        if not keep_alive or state.error:
             state.phase = "parando"
             self.on_update(state)
-            try:
-                send("stop")
-            except Exception:
-                pass
-            process.wait(timeout=180)
-            reader.join(timeout=10)
-
+            self.stop()
         state.finished = True
         state.phase = "listo" if not state.error else "error"
         self.on_update(state)

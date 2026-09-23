@@ -72,6 +72,34 @@ class Pipeline:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.job: Job | None = None
         self.on_cleanup: Callable[[int], None] = lambda _mb: None
+        self.runner = WorldRunner(config, on_update=self._update)
+        self._current: Job | None = None
+
+    def _update(self, state: RunState) -> None:
+        job = self._current
+        if not job:
+            return
+        with job.lock:
+            job.state = state
+            job.phase = state.phase
+            job.progress = state.progress
+            job.message = state.message
+
+    @property
+    def server(self) -> dict:
+        return {"alive": self.runner.alive, "seed": self.runner.seed}
+
+    def stop_server(self) -> None:
+        """Para el servidor y, si no se conservan los mundos, borra el de esa semilla."""
+        seed = self.runner.seed
+        self.runner.stop()
+        if seed is not None and not self.config.keep_worlds:
+            self.on_cleanup(self.discard(seed))
+
+    def start_server(self, seed: int) -> None:
+        job = Job(seed=seed, radius=self.config.radius)
+        self._current = job
+        self.runner.start(seed, RunState(seed=seed))
 
     def start(self, seed: int | None = None, radius: int | None = None) -> Job:
         if self.job and not self.job.snapshot()["done"]:
@@ -82,16 +110,16 @@ class Pipeline:
         return job
 
     def _run(self, job: Job) -> None:
-        def update(state: RunState) -> None:
-            with job.lock:
-                job.state = state
-                job.phase = state.phase
-                job.progress = state.progress
-                job.message = state.message
-
+        self._current = job
         try:
-            runner = WorldRunner(self.config, on_update=update)
-            state = runner.generate(job.seed, job.radius)
+            # Cambiar de semilla obliga a mundo nuevo: se para el anterior y se tira su mundo.
+            previous = self.runner.seed
+            if self.runner.alive and previous != job.seed:
+                job.phase = "cambiando de semilla"
+                self.runner.stop()
+                if previous is not None and not self.config.keep_worlds:
+                    self.on_cleanup(self.discard(previous))
+            state = self.runner.generate(job.seed, job.radius, keep_alive=True)
             if state.error:
                 raise RuntimeError(state.error)
             job.phase = "leyendo el mundo"
@@ -113,7 +141,7 @@ class Pipeline:
                 cities=cities, map_png=map_png, share_png=share_png, world_dir=world,
                 rendered=rendered,
             )
-            if not self.config.keep_worlds:
+            if not self.config.keep_worlds and not self.runner.alive:
                 job.phase = "limpiando"
                 self.on_cleanup(self.discard(job.seed))
             job.phase = "listo"
@@ -124,6 +152,8 @@ class Pipeline:
 
     def discard(self, seed: int) -> int:
         """Borra el directorio de trabajo de una semilla. Devuelve los MB liberados."""
+        if self.runner.alive and self.runner.seed == seed:
+            raise RuntimeError("ese mundo lo tiene abierto el servidor; párelo primero")
         work = Path(self.config.work_dir) / str(seed)
         if not work.is_dir():
             return 0
@@ -146,10 +176,10 @@ class Pipeline:
                 count += 1
         return count, freed
 
-    def rerender(self, job: Job, notes: str) -> Path:
-        """La imagen para compartir se rehace al guardar, para que lleve las notas escritas."""
+    def share_image(self, job: Job) -> Path:
+        """La imagen para compartir: mapa y semilla. Las notas van solo en `notas.md`."""
         scan_result = job.scan
         if not scan_result or not scan_result.rendered:
             raise RuntimeError("no hay nada que dibujar todavía")
-        with_overlay(scan_result.rendered, job.seed, notes=notes).save(scan_result.share_png)
+        with_overlay(scan_result.rendered, job.seed).save(scan_result.share_png)
         return scan_result.share_png

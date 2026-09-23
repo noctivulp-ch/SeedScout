@@ -111,3 +111,37 @@ def test_discard_all_ignora_lo_que_no_sea_una_semilla(tmp_path):
     count, _freed = pipeline.discard_all()
     assert count == 2
     assert not (runs / "-456").exists()
+
+
+def test_imagen_para_compartir_no_lleva_panel_de_notas():
+    """Por qué: las notas pueden ser personales y esta imagen es la que se pega en Discord.
+
+    Si volviera a aparecer el panel lateral, se estaría publicando texto que el usuario escribió
+    para sí mismo. Se comprueba por la geometría: sin panel, el ancho es el del mapa más el margen.
+    """
+    from PIL import Image
+
+    from seedscout.render import MapImage, with_overlay
+
+    rendered = MapImage(image=Image.new("RGB", (300, 200)), blocks_per_pixel=2, origin=(0, 0),
+                        legend=[("minecraft:plains", 10)])
+    out = with_overlay(rendered, 123)
+    assert out.width == 300 * 3 + 32, "el ancho debe ser solo mapa + márgenes, sin panel lateral"
+
+
+def test_no_se_borra_un_mundo_que_el_servidor_tiene_abierto(tmp_path):
+    """Por qué: borrar las regiones bajo un servidor vivo corrompe el mundo a medio escribir."""
+    import pytest
+
+    from seedscout.config import Config
+    from seedscout.pipeline import Pipeline
+
+    pipeline = Pipeline(Config(work_dir=str(tmp_path / "runs")), tmp_path / "cache")
+
+    class VivoConSemilla:
+        alive = True
+        seed = 42
+
+    pipeline.runner = VivoConSemilla()  # type: ignore[assignment]
+    with pytest.raises(RuntimeError, match="párelo primero"):
+        pipeline.discard(42)

@@ -47,8 +47,9 @@ def create_app(config: Config | None = None) -> Flask:
     @app.get("/api/status")
     def status():
         if not pipeline.job:
-            return jsonify({"idle": True})
+            return jsonify({"idle": True, "server": pipeline.server})
         snapshot = pipeline.job.snapshot()
+        snapshot["server"] = pipeline.server
         scan = pipeline.job.scan
         if scan:
             snapshot["result"] = {
@@ -59,7 +60,7 @@ def create_app(config: Config | None = None) -> Flask:
             }
         return jsonify(snapshot)
 
-    @app.get("/api/map/<int:seed>")
+    @app.get("/api/map/<int(signed=True):seed>")
     def map_png(seed: int):
         path = cache / f"{seed}.png"
         if not path.exists():
@@ -72,14 +73,32 @@ def create_app(config: Config | None = None) -> Flask:
         if not job or not job.scan:
             return jsonify({"error": "no hay ninguna semilla generada"}), 400
         notes = (request.get_json(silent=True) or {}).get("notes", "")
-        share = pipeline.rerender(job, notes)
+        share = pipeline.share_image(job)
         folder = store.save(job.seed, job.scan.map_png, share, job.scan.data(), notes)
         return jsonify({"saved": str(folder), "gallery": "/galeria"})
 
-    @app.post("/api/delete/<int:seed>")
+    @app.post("/api/delete/<int(signed=True):seed>")
     def delete(seed: int):
         store.delete(seed)
         return jsonify({"ok": True})
+
+    @app.get("/api/server")
+    def server_status():
+        return jsonify(pipeline.server)
+
+    @app.post("/api/server/stop")
+    def server_stop():
+        pipeline.stop_server()
+        return jsonify(pipeline.server)
+
+    @app.post("/api/server/start")
+    def server_start():
+        payload = request.get_json(silent=True) or {}
+        seed = payload.get("seed")
+        if seed in (None, ""):
+            return jsonify({"error": "hace falta una semilla: el mundo se crea con ella"}), 400
+        pipeline.start_server(int(seed))
+        return jsonify(pipeline.server)
 
     @app.post("/api/clean")
     def clean():

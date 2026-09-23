@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     for name, share in result.biomes[:8]:
         print(f"  {pretty(name):24} {share:5.1f}%")
     if args.save:
-        share_png = pipeline.rerender(job, args.notes)
+        share_png = pipeline.share_image(job)
         folder = SeedStore(Path(config.seeds_dir)).save(seed, result.map_png, share_png, result.data(), args.notes)
         print(f"guardada en {folder}")
     else:

@@ -79,59 +79,21 @@ def render_biomes(sample: WorldSample, blocks_per_pixel: int = 2, shade: bool = 
     )
 
 
-def with_overlay(
-    rendered: MapImage,
-    seed: int,
-    notes: str = "",
-    title: str = "",
-    max_legend: int = 12,
-) -> Image.Image:
-    """La versión para compartir: mapa, semilla, leyenda de biomas y notas rotuladas."""
+def with_overlay(rendered: MapImage, seed: int, title: str = "") -> Image.Image:
+    """La versión para compartir: el mapa y la semilla, nada más."""
     map_image = rendered.image
     scale = max(1, min(3, 900 // max(map_image.width, 1)))
     if scale > 1:
         map_image = map_image.resize((map_image.width * scale, map_image.height * scale), Image.NEAREST)
 
-    pad, side = 16, 320
-    header = 64
-    total = sum(count for _, count in rendered.legend) or 1
-    body = max(map_image.height, 22 * min(len(rendered.legend), max_legend) + 120)
-    canvas = Image.new("RGB", (map_image.width + side + pad * 3, body + header + pad * 2), (22, 24, 28))
-    canvas.paste(map_image, (pad, header + pad))
+    pad, header = 16, 46
+    canvas = Image.new("RGB", (map_image.width + pad * 2, map_image.height + header + pad), (22, 24, 28))
+    canvas.paste(map_image, (pad, header))
     draw = ImageDraw.Draw(canvas)
-
-    draw.text((pad, 14), title or "SeedScout — DeceasedCraft", font=_font(22), fill=(236, 238, 242))
-    draw.text((pad, 40), f"Semilla: {seed}", font=_font(17), fill=(255, 196, 96))
-
-    x = pad * 2 + map_image.width
-    y = header + pad
-    draw.text((x, y), "Biomas", font=_font(17), fill=(236, 238, 242))
-    y += 26
-    for name, count in rendered.legend[:max_legend]:
-        draw.rectangle([x, y + 3, x + 14, y + 15], fill=biome_color(name))
-        share = 100.0 * count / total
-        draw.text((x + 22, y), f"{pretty(name)} · {share:.1f}%", font=_font(14), fill=(206, 210, 216))
-        y += 21
-    if len(rendered.legend) > max_legend:
-        draw.text((x, y), f"y {len(rendered.legend) - max_legend} más", font=_font(13), fill=(150, 154, 160))
-        y += 24
-
-    if notes.strip():
-        y += 12
-        draw.text((x, y), "Notas", font=_font(17), fill=(236, 238, 242))
-        y += 24
-        font = _font(14)
-        for line in _wrap(notes.strip(), font, side - 10, draw):
-            draw.text((x, y), line, font=font, fill=(206, 210, 216))
-            y += 18
-
-    scale_blocks = rendered.blocks_per_pixel * (1.0 / scale)
-    draw.text(
-        (pad, canvas.height - 22),
-        f"1 px = {scale_blocks:g} bloques · origen {rendered.origin[0]}, {rendered.origin[1]}",
-        font=_font(13),
-        fill=(150, 154, 160),
-    )
+    draw.text((pad, 12), title or "DeceasedCraft", font=_font(19), fill=(236, 238, 242))
+    seed_text = f"Semilla: {seed}"
+    font = _font(19)
+    draw.text((canvas.width - pad - draw.textlength(seed_text, font=font), 12), seed_text, font=font, fill=(255, 196, 96))
     return canvas
 
 

@@ -37,6 +37,9 @@ textarea { width:100%; min-height:120px; resize:vertical; }
 .saved a { color:var(--accent); text-decoration:none; }
 .muted { color:var(--dim); font-size:13px; }
 .status { font-size:13px; color:var(--dim); min-height:20px; }
+.dot { width:10px; height:10px; border-radius:50%; background:#5a5f68; display:inline-block; }
+.dot.on { background:var(--ok); box-shadow:0 0 7px var(--ok); }
+.hint { font-size:12px; color:var(--dim); margin:6px 0 0; }
 .error { color:var(--bad); }
 </style>
 </head>
@@ -47,6 +50,8 @@ textarea { width:100%; min-height:120px; resize:vertical; }
     <input id="seed" placeholder="semilla (vacío = aleatoria)" autocomplete="off">
     <label class="muted">radio <input id="radius" type="number" value="{{ config.radius }}" min="128" step="128"></label>
     <button id="go" class="primary">Generar</button>
+    <span id="serverdot" class="dot" title="servidor parado"></span>
+    <button id="srv">Arrancar servidor</button>
   </div>
 </header>
 
@@ -75,6 +80,7 @@ textarea { width:100%; min-height:120px; resize:vertical; }
         <a href="/galeria" target="_blank" class="muted">ver galería</a>
       </div>
       <p class="status" id="savestatus"></p>
+      <p class="hint">La imagen para compartir lleva solo el mapa y la semilla; las notas quedan en <code>notas.md</code>.</p>
     </div>
     <div class="card">
       <h2>Guardadas</h2>
@@ -95,10 +101,34 @@ textarea { width:100%; min-height:120px; resize:vertical; }
 <script>
 const $ = (id) => document.getElementById(id);
 let polling = null;
+let serverAlive = false;
+
+function paintServer(server) {
+  serverAlive = Boolean(server && server.alive);
+  $('serverdot').classList.toggle('on', serverAlive);
+  $('serverdot').title = serverAlive ? ('servidor arriba · semilla ' + server.seed) : 'servidor parado';
+  $('srv').textContent = serverAlive ? 'Parar servidor' : 'Arrancar servidor';
+}
+
+$('srv').onclick = async () => {
+  $('srv').disabled = true;
+  if (serverAlive) {
+    paintServer(await (await fetch('/api/server/stop', {method:'POST'})).json());
+  } else {
+    const seed = $('seed').value.trim();
+    if (!seed) { $('status').textContent = 'Para arrancar el servidor hace falta una semilla: el mundo se crea con ella.'; $('srv').disabled = false; return; }
+    $('status').textContent = 'Arrancando el servidor…';
+    const res = await fetch('/api/server/start', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({seed})});
+    const data = await res.json();
+    if (data.error) { $('status').textContent = data.error; } else { paintServer(data); $('status').textContent = 'Servidor arriba. Genera las veces que quieras sobre esta semilla sin esperar el arranque.'; }
+  }
+  $('srv').disabled = false;
+};
 
 async function poll() {
   const res = await fetch('/api/status');
   const data = await res.json();
+  paintServer(data.server);
   if (data.idle) return;
   $('seedlabel').textContent = data.seed;
   $('progress').style.width = (data.progress || 0) + '%';
@@ -148,7 +178,8 @@ $('save').onclick = async () => {
   if (!data.error) setTimeout(() => location.reload(), 900);
 };
 
-if ({{ 'true' if job and not job.done else 'false' }}) { polling = setInterval(poll, 2000); poll(); }
+poll();
+if ({{ 'true' if job and not job.done else 'false' }}) { polling = setInterval(poll, 2000); }
 </script>
 </body>
 </html>

@@ -31,6 +31,11 @@ La interfaz da: semilla usada, mapa de biomas, lista de biomas con su porcentaje
 detectadas con su centro, un campo de notas y el botón de guardar. El botón **Generar** sin
 semilla sortea una.
 
+**El servidor se queda vivo** entre generaciones: hay un botón para arrancarlo y pararlo, y un
+punto verde que indica si está arriba y con qué semilla. Volver a generar sobre la misma semilla
+(para ampliar el radio) se salta los 83 s de arranque. Cambiar de semilla sí obliga a reiniciar:
+la semilla se fija al crear el mundo y en Forge no se puede cambiar en caliente.
+
 ## Cuánto tarda
 
 Medido el 2026-09-22 sobre DeceasedCraft con 340 mods, radio 256:
@@ -52,7 +57,7 @@ Una carpeta por semilla en `~/Documentos/Minecraft/SeedScout/<semilla>/`:
 | Archivo | Contenido |
 |---|---|
 | `mapa.png` | el mapa de biomas en crudo |
-| `mapa-compartir.png` | mapa + semilla + leyenda + tus notas, listo para pegar en Discord |
+| `mapa-compartir.png` | el mapa con la semilla escrita, listo para pegar en Discord |
 | `datos.json` | semilla, radio, chunks, biomas con su porcentaje y ciudades con centro y tamaño |
 | `notas.md` | lo mismo en markdown, con tus notas al final |
 
@@ -68,8 +73,9 @@ SeedScout nunca escribe en la instalación base: `mods/` y `libraries/` se enlaz
 `config/` se copia al directorio de trabajo de cada semilla. El servidor se para siempre con el
 comando `stop`, nunca matando el proceso.
 
-El mundo de trabajo (unos 190 MB por semilla) **se borra solo** en cuanto se ha leído y dibujado el
-mapa; el mapa queda en memoria, así que guardar con notas después no lo necesita. Se conserva
+El mundo de trabajo (unos 190 MB por semilla) **se borra solo** al parar el servidor o al cambiar
+de semilla; mientras el servidor lo tiene abierto no se toca. El mapa queda dibujado en memoria,
+así que guardar después no necesita el mundo. Se conserva
 poniendo `keep_worlds` a `true` en la configuración, y `clean` limpia lo que haya quedado de
 ejecuciones interrumpidas. El borrado no sigue los symlinks: la instalación del modpack no se toca.
 
