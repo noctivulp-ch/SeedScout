@@ -194,3 +194,16 @@ def test_detecta_el_arranque_fallido_y_nombra_al_mod():
     assert MOD_RE.search(linea).group(1) == "create"
     assert not FATAL_RE.search('[main/INFO]: Done (83.0s)! For help, type "help"')
     assert not FATAL_RE.search("[main/WARN]: Registry entry listened ... was not realized!")
+
+
+def test_el_mapa_tiene_que_contener_el_spawn(tmp_path):
+    """Por qué: el pack mueve el spawn junto a un edificio de Lost Cities, a veces a más de 1500
+    bloques del origen, y no lo fija hasta después de generar. Si el mapa no lo incluye, se elige
+    semilla sin haber visto dónde se empieza a jugar."""
+    radius = 256
+    center = (0, 0)
+    spawn_lejos = (1656, 552)
+    spawn_cerca = (24, 24)
+    fuera = lambda s: max(abs(s[0] - center[0]), abs(s[1] - center[1])) > radius
+    assert fuera(spawn_lejos), "un spawn a 1656 bloques con radio 256 exige segunda pasada"
+    assert not fuera(spawn_cerca), "un spawn dentro del radio no debe regenerar nada"

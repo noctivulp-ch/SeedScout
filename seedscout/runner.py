@@ -39,6 +39,7 @@ FATAL_RE = re.compile(
     r"|The server encountered an unexpected error"
 )
 MOD_RE = re.compile(r"Mod '([^']+)'")
+SAVED_RE = re.compile(r"Saved the game|Saving the game")
 
 
 def random_seed() -> int:
@@ -81,6 +82,7 @@ class WorldRunner:
         self._booted = threading.Event()
         self._chunky_done = threading.Event()
         self._failed = threading.Event()
+        self._saved = threading.Event()
         self._failure: str = ""
         self._state: RunState | None = None
 
@@ -108,6 +110,11 @@ class WorldRunner:
             for item in source.iterdir():
                 if item.is_file():
                     (target / item.name).symlink_to(item.resolve())
+                elif item.is_dir():
+                    # `mods/.connector` son los jars de Fabric ya remapeados por Connector. Sin
+                    # esa caché el remapeo se rehace en cada arranque y cambia el orden de carga;
+                    # es la sospecha del fallo intermitente de Create en tareas diferidas.
+                    shutil.copytree(item, target / item.name, symlinks=True)
         for name in self.config.copy_dirs:
             source = base / name
             if source.is_dir():
@@ -168,6 +175,8 @@ class WorldRunner:
                                      if culprit else line.strip()[:160])
                     self._failed.set()
                     self._booted.set()  # deja de esperar: el arranque ya no va a llegar
+                if SAVED_RE.search(line):
+                    self._saved.set()
                 if "Chunky" in line and state:
                     found = PROGRESS_RE.search(line)
                     if found:
@@ -241,11 +250,23 @@ class WorldRunner:
         self.seed = None
 
     def world_spawn(self) -> tuple[int, int] | None:
-        """Spawn que el servidor fijó al crear el mundo, antes de pregenerar nada."""
-        if not self.work:
+        """Spawn que el servidor fijó al crear el mundo.
+
+        Hay que forzar un guardado antes de leerlo: al terminar el arranque el spawn ya está
+        decidido en memoria, pero `level.dat` todavía no se ha escrito en disco y se leería el
+        del mundo recién creado (0, 0).
+        """
+        if not self.work or not self.alive:
             return None
         from .world import read_spawn
 
+        self._saved.clear()
+        try:
+            self._send("save-all flush")
+        except RuntimeError:
+            return None
+        self._saved.wait(60)
+        time.sleep(1)
         return read_spawn(self.work / "world")
 
     def pregenerate(self, radius: int, state: RunState, center: tuple[int, int] = (0, 0)) -> None:
@@ -276,11 +297,21 @@ class WorldRunner:
         self.on_update(state)
         try:
             self.start(seed, state)
+            follow_spawn = center is None and self.config.center == "spawn"
             if center is None:
-                spawn = self.world_spawn() if self.config.center == "spawn" else None
-                center = spawn or (0, 0)
+                center = (self.world_spawn() if follow_spawn else None) or (0, 0)
             state.center = center
             self.pregenerate(radius, state, center)
+            if follow_spawn:
+                # El spawn definitivo no está fijado cuando arranca el servidor: Lost Cities lo
+                # mueve junto a uno de sus edificios y eso puede ocurrir durante la generación.
+                # Se relee al terminar y, si quedó fuera de lo generado, se hace otra pasada.
+                spawn = self.world_spawn()
+                if spawn and max(abs(spawn[0] - center[0]), abs(spawn[1] - center[1])) > radius:
+                    state.message = f"el spawn quedó en {spawn[0]}, {spawn[1]}: se genera alrededor"
+                    self.on_update(state)
+                    state.center = center = spawn
+                    self.pregenerate(radius, state, spawn)
         except Exception as error:
             state.error = str(error)
         if not keep_alive or state.error:

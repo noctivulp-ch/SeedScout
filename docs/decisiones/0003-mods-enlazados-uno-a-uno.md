@@ -36,3 +36,19 @@ resuelta del original. Sigue sin copiarse nada y la instalación base sigue inta
 - Son 339 symlinks por semilla: instantáneo y sin coste de disco.
 - Si aparece otro mod que se cargue como servicio y tampoco resuelva su jar anidado, el siguiente
   paso sería copiar ese jar concreto, no toda la carpeta.
+
+## Añadido 2026-09-23 — los subdirectorios de `mods/` también hacen falta
+
+Enlazar solo los archivos dejaba fuera `mods/.connector`, donde Connector guarda los jars de Fabric
+ya remapeados. Sin esa caché, el remapeo se rehace en cada arranque y el orden de carga cambia; el
+síntoma fue un crash **intermitente** de Create en una tarea diferida:
+
+```
+[ERROR] [DeferredWorkQueue]: Mod 'create' encountered an error in a deferred task:
+Caused by: NullPointerException: Registry entry not present: create:andesite_alloy
+   at AllAdvancements.<clinit>(AllAdvancements.java:55)
+```
+
+Dos de tres arranques caían así, y en `dc-test` —que sí tiene la caché— no pasa nunca. Copiando
+`mods/.connector` (424 KB) y `modernfix/` (20 KB) al directorio de trabajo, el arranque volvió a
+ser fiable. Los subdirectorios se copian en vez de enlazarse porque Connector escribe en ellos.

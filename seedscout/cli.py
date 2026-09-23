@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 from pathlib import Path
 
@@ -83,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
 
     pipeline = Pipeline(config, Path(config.work_dir).parent / "cache")
     pipeline.on_cleanup = lambda mb: print(f"  mundo de trabajo borrado ({mb} MB)")
+    # En la consola no hay nadie que vaya a reutilizar el servidor: se para y se limpia al acabar.
+    atexit.register(pipeline.stop_server)
     seed = args.seed if args.seed is not None else random_seed()
     print(f"generando la semilla {seed} (radio {args.radius or config.radius})…")
     job = pipeline.start(seed, args.radius, getattr(args, "center", None))

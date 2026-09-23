@@ -34,7 +34,7 @@ class Config:
     keep_worlds: bool = False
 
     # Se copian porque los mods escriben dentro; el resto se enlaza por symlink.
-    copy_dirs: tuple[str, ...] = ("config", "defaultconfigs", "kubejs")
+    copy_dirs: tuple[str, ...] = ("config", "defaultconfigs", "kubejs", "modernfix")
     link_dirs: tuple[str, ...] = (
         "libraries", "customnpcs", "patchouli_books",
         "quests_structures", "generated_datapacks", "media",
