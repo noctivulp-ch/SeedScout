@@ -10,9 +10,11 @@ base queda intacta. Se para siempre con el comando `stop` por consola, nunca mat
 """
 from __future__ import annotations
 
+import os
 import random
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -25,6 +27,18 @@ from .config import Config
 DONE_RE = re.compile(r'Done \(([\d.]+)s\)')
 PROGRESS_RE = re.compile(r'(\d+(?:[.,]\d+)?)%')
 CHUNKY_DONE_RE = re.compile(r'Task (?:finished|complete)', re.I)
+# Un arranque que revienta no siempre mata el proceso: Forge deja la JVM viva y el servidor nunca
+# llega a "Done". Sin esto, la espera se comía el timeout entero (pasó con una carrera de Create:
+# "Mod 'create' encountered an error in a deferred task").
+FATAL_RE = re.compile(
+    r"encountered an error in a deferred task"
+    r"|Exception in thread \"main\""
+    r"|Failed to start the minecraft server"
+    r"|A fatal error has occurred"
+    r"|Loading errors have been found"
+    r"|The server encountered an unexpected error"
+)
+MOD_RE = re.compile(r"Mod '([^']+)'")
 
 
 def random_seed() -> int:
@@ -42,6 +56,7 @@ class RunState:
     started: float = field(default_factory=time.time)
     finished: bool = False
     error: str | None = None
+    center: tuple[int, int] = (0, 0)
 
     @property
     def elapsed(self) -> float:
@@ -65,6 +80,8 @@ class WorldRunner:
         self.log_path: Path | None = None
         self._booted = threading.Event()
         self._chunky_done = threading.Event()
+        self._failed = threading.Event()
+        self._failure: str = ""
         self._state: RunState | None = None
 
     @property
@@ -145,6 +162,12 @@ class WorldRunner:
                 state = self._state
                 if not self._booted.is_set() and DONE_RE.search(line):
                     self._booted.set()
+                if not self._booted.is_set() and FATAL_RE.search(line):
+                    culprit = MOD_RE.search(line)
+                    self._failure = (f"el mod '{culprit.group(1)}' hizo fallar el arranque"
+                                     if culprit else line.strip()[:160])
+                    self._failed.set()
+                    self._booted.set()  # deja de esperar: el arranque ya no va a llegar
                 if "Chunky" in line and state:
                     found = PROGRESS_RE.search(line)
                     if found:
@@ -163,6 +186,8 @@ class WorldRunner:
         state = state or RunState(seed=seed)
         self._state = state
         self._booted.clear()
+        self._failed.clear()
+        self._failure = ""
         state.phase = "preparando"
         self.on_update(state)
         self.work = self.prepare(seed)
@@ -182,6 +207,10 @@ class WorldRunner:
         if not self._booted.wait(self.config.boot_timeout_s):
             self.stop()
             raise TimeoutError(f"el servidor no arrancó en {self.config.boot_timeout_s}s")
+        if self._failed.is_set():
+            message = self._failure or "el arranque falló"
+            self.stop()
+            raise RuntimeError(f"{message} (log: {self.log_path})")
         state.phase = "servidor listo"
         self.on_update(state)
 
@@ -197,21 +226,37 @@ class WorldRunner:
         except Exception:
             pass
         try:
-            self.process.wait(timeout=180)  # type: ignore[union-attr]
+            self.process.wait(timeout=self.config.stop_timeout_s)  # type: ignore[union-attr]
         except subprocess.TimeoutExpired:
-            pass
+            # Un servidor que ya reventó no atiende la consola. SIGTERM es el apagado ordenado
+            # (Minecraft lo engancha), no un kill a secas; solo se usa con los servidores que
+            # lanza SeedScout y cuando `stop` no ha servido.
+            self.process.send_signal(signal.SIGTERM)  # type: ignore[union-attr]
+            try:
+                self.process.wait(timeout=30)  # type: ignore[union-attr]
+            except subprocess.TimeoutExpired:
+                self.process.kill()  # type: ignore[union-attr]
+                self.process.wait(timeout=15)  # type: ignore[union-attr]
         self.process = None
         self.seed = None
 
-    def pregenerate(self, radius: int, state: RunState) -> None:
+    def world_spawn(self) -> tuple[int, int] | None:
+        """Spawn que el servidor fijó al crear el mundo, antes de pregenerar nada."""
+        if not self.work:
+            return None
+        from .world import read_spawn
+
+        return read_spawn(self.work / "world")
+
+    def pregenerate(self, radius: int, state: RunState, center: tuple[int, int] = (0, 0)) -> None:
         self._chunky_done.clear()
         self._state = state
         state.phase = "generando"
         state.progress = 0.0
-        state.message = f"Chunky, radio {radius} bloques"
+        state.message = f"Chunky, radio {radius} bloques alrededor de {center[0]}, {center[1]}"
         self.on_update(state)
         self._send("chunky world minecraft:overworld")
-        self._send("chunky center 0 0")
+        self._send(f"chunky center {center[0]} {center[1]}")
         self._send(f"chunky radius {radius}")
         self._send("chunky start")
         if not self._chunky_done.wait(self.config.chunky_timeout_s):
@@ -223,14 +268,19 @@ class WorldRunner:
         self._send("save-all flush")
         time.sleep(5)
 
-    def generate(self, seed: int, radius: int | None = None, keep_alive: bool = True) -> RunState:
+    def generate(self, seed: int, radius: int | None = None, keep_alive: bool = True,
+                 center: tuple[int, int] | None = None) -> RunState:
         """Genera (o amplía) el mundo de una semilla. Deja el servidor vivo salvo que se diga lo contrario."""
         radius = radius or self.config.radius
         state = RunState(seed=seed)
         self.on_update(state)
         try:
             self.start(seed, state)
-            self.pregenerate(radius, state)
+            if center is None:
+                spawn = self.world_spawn() if self.config.center == "spawn" else None
+                center = spawn or (0, 0)
+            state.center = center
+            self.pregenerate(radius, state, center)
         except Exception as error:
             state.error = str(error)
         if not keep_alive or state.error:

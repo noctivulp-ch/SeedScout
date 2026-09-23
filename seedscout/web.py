@@ -34,12 +34,13 @@ def create_app(config: Config | None = None) -> Flask:
         payload = request.get_json(silent=True) or {}
         raw_seed = str(payload.get("seed", "")).strip()
         radius = int(payload.get("radius") or config.radius)
+        center_mode = payload.get("center") or config.center
         try:
             seed = int(raw_seed) if raw_seed else None
         except ValueError:
             seed = sum((i + 1) * ord(ch) for i, ch in enumerate(raw_seed))  # semillas de texto, como en el juego
         try:
-            job = pipeline.start(seed, radius)
+            job = pipeline.start(seed, radius, center_mode)
         except RuntimeError as error:
             return jsonify({"error": str(error)}), 409
         return jsonify(job.snapshot())
@@ -55,6 +56,7 @@ def create_app(config: Config | None = None) -> Flask:
             snapshot["result"] = {
                 "chunks": scan.chunks,
                 "spawn": list(scan.spawn) if scan.spawn else None,
+                "center": list(scan.center),
                 "size": list(scan.rendered.image.size) if scan.rendered else None,
                 "biomes": [[pretty(name), round(share, 1)] for name, share in scan.biomes[:14]],
                 "cities": scan.cities[:10],

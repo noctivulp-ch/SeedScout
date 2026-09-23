@@ -181,3 +181,16 @@ def test_mark_spawn_dibuja_el_recuadro_en_el_chunk_del_spawn():
     pixels = rendered.image.load()
     assert pixels[16, 16] == SPAWN_OUTLINE, "la esquina del chunk del spawn debe quedar marcada"
     assert pixels[60, 60] == (0, 0, 0), "fuera del spawn no se pinta nada"
+
+
+def test_detecta_el_arranque_fallido_y_nombra_al_mod():
+    """Por qué: cuando Forge revienta en una tarea diferida, la JVM se queda viva y el servidor
+    nunca imprime "Done". Sin este patrón, la espera se comía los 600 s del timeout y dejaba un
+    proceso de varios GB colgado (pasó de verdad con una carrera de Create)."""
+    from seedscout.runner import FATAL_RE, MOD_RE
+
+    linea = "[00:45:48] [main/ERROR] [DeferredWorkQueue/]: Mod 'create' encountered an error in a deferred task:"
+    assert FATAL_RE.search(linea)
+    assert MOD_RE.search(linea).group(1) == "create"
+    assert not FATAL_RE.search('[main/INFO]: Done (83.0s)! For help, type "help"')
+    assert not FATAL_RE.search("[main/WARN]: Registry entry listened ... was not realized!")

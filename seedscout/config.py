@@ -21,9 +21,15 @@ class Config:
     # Jar del cliente: de ahí salen los colores de bloque y los colormaps de hierba y follaje.
     client_jar: str = "/media/sotano/Juegos/Fijos/Minecraft/PrismLauncher/libraries/com/mojang/minecraft/1.20.1/minecraft-1.20.1-client.jar"
     radius: int = 768
+    # "spawn" centra el mapa donde aparece el jugador; "origin" en 0,0. En DeceasedCraft el spawn
+    # lo decide Lost Cities (forceSpawnBuildings) y suele caer a más de 1000 bloques del origen,
+    # así que centrar en 0,0 deja fuera del mapa justo la zona donde se empieza a jugar.
+    center: str = "spawn"
     game_port: int = 25599
     view_distance: int = 6
     boot_timeout_s: int = 600
+    # Lo que se espera a que `stop` cierre el servidor antes de mandarle SIGTERM.
+    stop_timeout_s: int = 60
     chunky_timeout_s: int = 3600
     keep_worlds: bool = False
 

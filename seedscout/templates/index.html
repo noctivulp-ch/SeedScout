@@ -25,6 +25,14 @@ button:disabled { opacity:.5; cursor:default; }
 #radius { width:90px; }
 #map { width:100%; border-radius:8px; background:#000; display:block; image-rendering:pixelated; }
 #mapwrap { position:relative; min-height:180px; display:grid; place-items:center; color:var(--dim); }
+/* Translúcida a propósito: se lee encima del mapa sin tapar lo que hay debajo. El desenfoque
+   mantiene el texto legible sobre terreno claro, y la sombra de texto sobre terreno oscuro. */
+#biometip { position:absolute; display:none; pointer-events:none; white-space:nowrap; text-align:right;
+  background:rgba(18,20,24,.55); border:1px solid rgba(255,255,255,.10); border-radius:6px;
+  padding:4px 8px; font-size:13px; line-height:1.35; color:#f2f4f7;
+  text-shadow:0 1px 2px rgba(0,0,0,.9); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); }
+#biometip b { color:var(--accent); font-weight:600; }
+#biometip span { color:#c3c8cf; }
 .bar { height:8px; background:#14161a; border-radius:5px; overflow:hidden; margin:10px 0 6px; }
 .bar > div { height:100%; width:0; background:var(--accent); transition:width .4s; }
 .legend { display:grid; gap:4px; margin:0; padding:0; list-style:none; font-size:13px; }
@@ -49,6 +57,10 @@ textarea { width:100%; min-height:120px; resize:vertical; }
   <div class="row" style="margin-left:auto">
     <input id="seed" placeholder="semilla (vacío = aleatoria)" autocomplete="off">
     <label class="muted">radio <input id="radius" type="number" value="{{ config.radius }}" min="128" step="128"></label>
+    <select id="center" title="dónde se centra la pregeneración">
+      <option value="spawn"{% if config.center == 'spawn' %} selected{% endif %}>centrar en el spawn</option>
+      <option value="origin"{% if config.center != 'spawn' %} selected{% endif %}>centrar en 0,0</option>
+    </select>
     <button id="go" class="primary">Generar</button>
     <span id="serverdot" class="dot" title="servidor parado"></span>
     <button id="srv">Arrancar servidor</button>
@@ -60,8 +72,11 @@ textarea { width:100%; min-height:120px; resize:vertical; }
     <h2>Mapa <span id="seedlabel" class="muted"></span></h2>
     <div class="bar"><div id="progress"></div></div>
     <p class="status" id="status">Escribe una semilla o pulsa Generar para sortear una.</p>
-    <div id="mapwrap"><span id="placeholder">Sin mapa todavía</span><img id="map" hidden alt="mapa del mundo"></div>
-    <p class="status" id="hover">Pasa el ratón por el mapa para ver el bioma.</p>
+    <div id="mapwrap">
+      <span id="placeholder">Sin mapa todavía</span>
+      <img id="map" hidden alt="mapa del mundo">
+      <div id="biometip"></div>
+    </div>
     <p class="hint" id="spawnline"></p>
   </section>
 
@@ -150,9 +165,10 @@ async function poll() {
       : '<li class="muted">ninguna en el radio</li>';
     $('save').disabled = false;
     mapSize = data.result.size;
-    $('spawnline').textContent = data.result.spawn
-      ? `Spawn en x ${data.result.spawn[0]}, z ${data.result.spawn[1]} — recuadrado en el mapa.`
-      : '';
+    const c = data.result.center, sp = data.result.spawn;
+    $('spawnline').textContent = sp
+      ? `Spawn en x ${sp[0]}, z ${sp[1]} — recuadrado en el mapa. Mapa centrado en ${c[0]}, ${c[1]}.`
+      : `Mapa centrado en ${c ? c[0] + ', ' + c[1] : '0, 0'}.`;
   }
   if (data.done) { clearInterval(polling); polling = null; $('go').disabled = false; }
 }
@@ -165,7 +181,7 @@ $('go').onclick = async () => {
   $('placeholder').textContent = 'Generando el mundo…';
   const res = await fetch('/api/generate', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ seed: $('seed').value, radius: Number($('radius').value) })
+    body: JSON.stringify({ seed: $('seed').value, radius: Number($('radius').value), center: $('center').value })
   });
   if (!res.ok) { const e = await res.json(); $('status').textContent = e.error; $('go').disabled = false; return; }
   if (!polling) polling = setInterval(poll, 2000);
@@ -176,8 +192,14 @@ let mapSize = null;
 let hoverBusy = false;
 
 $('map').onmousemove = async (event) => {
-  if (!mapSize || hoverBusy) return;
+  if (!mapSize) return;
+  const wrap = $('mapwrap').getBoundingClientRect();
   const rect = event.target.getBoundingClientRect();
+  const tip = $('biometip');
+  // La etiqueta se ancla por su borde derecho al cursor, así crece hacia la izquierda.
+  tip.style.right = (wrap.right - event.clientX + 14) + 'px';
+  tip.style.top = (event.clientY - wrap.top - 12) + 'px';
+  if (hoverBusy) return;
   const px = Math.floor((event.clientX - rect.left) / rect.width * mapSize[0]);
   const py = Math.floor((event.clientY - rect.top) / rect.height * mapSize[1]);
   hoverBusy = true;
@@ -185,11 +207,15 @@ $('map').onmousemove = async (event) => {
     const res = await fetch(`/api/point?x=${px}&y=${py}`);
     const d = await res.json();
     if (d && d.biome) {
-      $('hover').textContent = `${d.biome} · ${d.block} · y ${d.y} · x ${d.x}, z ${d.z}`;
+      tip.innerHTML = `<b>${d.biome}</b>` + (d.block ? ` · ${d.block}` : '') +
+        `<br><span>y ${d.y} · x ${d.x}, z ${d.z}</span>`;
+      tip.style.display = 'block';
+    } else {
+      tip.style.display = 'none';
     }
   } finally { hoverBusy = false; }
 };
-$('map').onmouseleave = () => { $('hover').textContent = 'Pasa el ratón por el mapa para ver el bioma.'; };
+$('map').onmouseleave = () => { $('biometip').style.display = 'none'; };
 
 $('save').onclick = async () => {
   $('save').disabled = true;

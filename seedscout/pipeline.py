@@ -24,6 +24,7 @@ class Scan:
     biomes: list[tuple[str, float]]
     cities: list[dict]
     spawn: tuple[int, int] | None
+    center: tuple[int, int]
     map_png: Path
     share_png: Path
     world_dir: Path
@@ -39,6 +40,7 @@ class Scan:
             "biomas": self.biomes,
             "ciudades": self.cities,
             "spawn": list(self.spawn) if self.spawn else None,
+            "centro": list(self.center),
         }
 
 
@@ -48,6 +50,7 @@ class Job:
 
     seed: int
     radius: int
+    center_mode: str = "spawn"
     state: RunState | None = None
     scan: Scan | None = None
     error: str | None = None
@@ -61,6 +64,7 @@ class Job:
             "seed": self.seed,
             "radius": self.radius,
             "phase": self.phase,
+            "center_mode": self.center_mode,
             "progress": round(self.progress, 1),
             "message": self.message,
             "error": self.error,
@@ -117,10 +121,13 @@ class Pipeline:
         self._current = job
         self.runner.start(seed, RunState(seed=seed))
 
-    def start(self, seed: int | None = None, radius: int | None = None) -> Job:
+    def start(self, seed: int | None = None, radius: int | None = None,
+              center_mode: str | None = None) -> Job:
         if self.job and not self.job.snapshot()["done"]:
             raise RuntimeError("ya hay una semilla generándose")
-        job = Job(seed=seed if seed is not None else random_seed(), radius=radius or self.config.radius)
+        job = Job(seed=seed if seed is not None else random_seed(),
+                  radius=radius or self.config.radius,
+                  center_mode=center_mode or self.config.center)
         self.job = job
         threading.Thread(target=self._run, args=(job,), daemon=True).start()
         return job
@@ -135,7 +142,8 @@ class Pipeline:
                 self.runner.stop()
                 if previous is not None and not self.config.keep_worlds:
                     self.on_cleanup(self.discard(previous))
-            state = self.runner.generate(job.seed, job.radius, keep_alive=True)
+            center = None if job.center_mode == "spawn" else (0, 0)
+            state = self.runner.generate(job.seed, job.radius, keep_alive=True, center=center)
             if state.error:
                 raise RuntimeError(state.error)
             job.phase = "leyendo el mundo"
@@ -156,7 +164,8 @@ class Pipeline:
             with_overlay(rendered, job.seed).save(share_png)
             job.scan = Scan(
                 seed=job.seed, radius=job.radius, chunks=len(sample.chunks), biomes=biomes,
-                cities=cities, spawn=spawn, map_png=map_png, share_png=share_png, world_dir=world,
+                cities=cities, spawn=spawn, center=state.center,
+                map_png=map_png, share_png=share_png, world_dir=world,
                 rendered=rendered,
             )
             if not self.config.keep_worlds and not self.runner.alive:

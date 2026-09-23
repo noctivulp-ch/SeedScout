@@ -26,6 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     gen.add_argument("seed", nargs="?", type=int)
     gen.add_argument("--radius", type=int)
     gen.add_argument("--notes", default="")
+    gen.add_argument("--center", choices=("spawn", "origin"), help="dónde centrar la pregeneración")
     gen.add_argument("--save", action="store_true", help="guardar en la carpeta de semillas")
 
     render = sub.add_parser("render", help="dibuja el mapa de un mundo ya existente")
@@ -84,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     pipeline.on_cleanup = lambda mb: print(f"  mundo de trabajo borrado ({mb} MB)")
     seed = args.seed if args.seed is not None else random_seed()
     print(f"generando la semilla {seed} (radio {args.radius or config.radius})…")
-    job = pipeline.start(seed, args.radius)
+    job = pipeline.start(seed, args.radius, getattr(args, "center", None))
     last = ""
     while not job.snapshot()["done"]:
         snapshot = job.snapshot()
@@ -98,7 +99,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {job.error}")
         return 1
     result = job.scan
-    print(f"{result.chunks} chunks · {len(result.cities)} ciudades")
+    print(f"{result.chunks} chunks · {len(result.cities)} ciudades · centrado en {result.center[0]}, {result.center[1]}")
+    if result.spawn:
+        print(f"  spawn del jugador: {result.spawn[0]}, {result.spawn[1]}")
     for name, share in result.biomes[:8]:
         print(f"  {pretty(name):24} {share:5.1f}%")
     if args.save:
