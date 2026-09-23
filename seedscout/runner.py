@@ -64,6 +64,15 @@ class WorldRunner:
             source = base / name
             if source.is_dir():
                 (work / name).symlink_to(source)
+        for name in getattr(self.config, "link_contents_dirs", ()):
+            source = base / name
+            if not source.is_dir():
+                continue
+            target = work / name
+            target.mkdir()
+            for item in source.iterdir():
+                if item.is_file():
+                    (target / item.name).symlink_to(item.resolve())
         for name in self.config.copy_dirs:
             source = base / name
             if source.is_dir():

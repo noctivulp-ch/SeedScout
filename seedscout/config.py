@@ -28,9 +28,13 @@ class Config:
     # Se copian porque los mods escriben dentro; el resto se enlaza por symlink.
     copy_dirs: tuple[str, ...] = ("config", "defaultconfigs", "kubejs")
     link_dirs: tuple[str, ...] = (
-        "mods", "libraries", "customnpcs", "patchouli_books",
+        "libraries", "customnpcs", "patchouli_books",
         "quests_structures", "generated_datapacks", "media",
     )
+    # `mods/` tiene que ser un directorio de verdad con un enlace por jar: si se enlaza la carpeta
+    # entera, ModLauncher no resuelve los jars anidados de los mods que se cargan como servicio
+    # (jasione muere con "jasione.mixins.json could not be read").
+    link_contents_dirs: tuple[str, ...] = ("mods",)
     copy_files: tuple[str, ...] = ("eula.txt", "default-server.properties", "nedologin.json")
 
     @classmethod
