@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>SeedScout</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { color-scheme: dark; --bg:#16181c; --card:#1e2127; --line:#2c313a; --text:#e6e8ec; --dim:#9aa0a8; --accent:#ffc460; --ok:#7ec87e; --bad:#e08080; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, sans-serif; }
+header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:16px 22px; border-bottom:1px solid var(--line); }
+h1 { font-size:19px; margin:0; }
+h1 span { color:var(--dim); font-weight:400; font-size:14px; }
+main { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:20px; padding:20px 22px; align-items:start; }
+@media (max-width:900px) { main { grid-template-columns:1fr; } }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+.card h2 { font-size:15px; margin:0 0 12px; }
+input, textarea, button, select { font:inherit; color:var(--text); background:#14161a; border:1px solid var(--line); border-radius:7px; padding:8px 10px; }
+input:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+button { cursor:pointer; background:#2a2f38; }
+button:hover:not(:disabled) { background:#343b46; }
+button.primary { background:var(--accent); color:#1a1c20; border-color:var(--accent); font-weight:600; }
+button:disabled { opacity:.5; cursor:default; }
+#seed { width:220px; font-family:ui-monospace, monospace; }
+#radius { width:90px; }
+#map { width:100%; border-radius:8px; background:#000; display:block; image-rendering:pixelated; }
+#mapwrap { position:relative; min-height:180px; display:grid; place-items:center; color:var(--dim); }
+.bar { height:8px; background:#14161a; border-radius:5px; overflow:hidden; margin:10px 0 6px; }
+.bar > div { height:100%; width:0; background:var(--accent); transition:width .4s; }
+.legend { display:grid; gap:4px; margin:0; padding:0; list-style:none; font-size:13px; }
+.legend li { display:flex; justify-content:space-between; gap:10px; color:var(--dim); }
+.legend b { color:var(--text); font-weight:500; }
+textarea { width:100%; min-height:120px; resize:vertical; }
+.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.saved { list-style:none; margin:0; padding:0; display:grid; gap:8px; max-height:300px; overflow:auto; }
+.saved li { display:flex; justify-content:space-between; gap:8px; align-items:center; font-family:ui-monospace, monospace; font-size:13px; }
+.saved a { color:var(--accent); text-decoration:none; }
+.muted { color:var(--dim); font-size:13px; }
+.status { font-size:13px; color:var(--dim); min-height:20px; }
+.error { color:var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>SeedScout <span>DeceasedCraft · mundos generados de verdad</span></h1>
+  <div class="row" style="margin-left:auto">
+    <input id="seed" placeholder="semilla (vacío = aleatoria)" autocomplete="off">
+    <label class="muted">radio <input id="radius" type="number" value="{{ config.radius }}" min="128" step="128"></label>
+    <button id="go" class="primary">Generar</button>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Mapa <span id="seedlabel" class="muted"></span></h2>
+    <div class="bar"><div id="progress"></div></div>
+    <p class="status" id="status">Escribe una semilla o pulsa Generar para sortear una.</p>
+    <div id="mapwrap"><span id="placeholder">Sin mapa todavía</span><img id="map" hidden alt="mapa de biomas"></div>
+  </section>
+
+  <aside style="display:grid; gap:16px">
+    <div class="card">
+      <h2>Biomas</h2>
+      <ul class="legend" id="biomes"><li class="muted">—</li></ul>
+    </div>
+    <div class="card">
+      <h2>Ciudades</h2>
+      <ul class="legend" id="cities"><li class="muted">—</li></ul>
+    </div>
+    <div class="card">
+      <h2>Guardar</h2>
+      <textarea id="notes" placeholder="Notas: qué te gusta de esta semilla, dónde caen las ciudades, qué biomas hay cerca del spawn…"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button id="save" disabled>Guardar semilla</button>
+        <a href="/galeria" target="_blank" class="muted">ver galería</a>
+      </div>
+      <p class="status" id="savestatus"></p>
+    </div>
+    <div class="card">
+      <h2>Guardadas</h2>
+      <ul class="saved" id="saved">
+        {% for item in saved %}
+        <li>
+          <a href="/semillas/{{ item.seed }}/mapa-compartir.png" target="_blank">{{ item.seed }}</a>
+          <span class="muted">{{ item.data.get('chunks', '?') }} chunks · {{ item.data.get('ciudades', [])|length }} ciudades</span>
+        </li>
+        {% else %}
+        <li class="muted">Ninguna todavía</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </aside>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let polling = null;
+
+async function poll() {
+  const res = await fetch('/api/status');
+  const data = await res.json();
+  if (data.idle) return;
+  $('seedlabel').textContent = data.seed;
+  $('progress').style.width = (data.progress || 0) + '%';
+  const minutes = Math.floor((data.elapsed || 0) / 60), seconds = Math.round((data.elapsed || 0) % 60);
+  $('status').textContent = data.error
+    ? 'Error: ' + data.error
+    : `${data.phase} · ${data.progress || 0}% · ${minutes}m ${seconds}s${data.message ? ' · ' + data.message : ''}`;
+  $('status').classList.toggle('error', Boolean(data.error));
+
+  if (data.result) {
+    $('map').src = data.result.map + '?t=' + Date.now();
+    $('map').hidden = false;
+    $('placeholder').hidden = true;
+    $('biomes').innerHTML = data.result.biomes.map(([name, share]) => `<li><b>${name}</b><span>${share}%</span></li>`).join('');
+    $('cities').innerHTML = data.result.cities.length
+      ? data.result.cities.map(c => `<li><b>${c.chunks} chunks</b><span>${c.center[0]}, ${c.center[1]}</span></li>`).join('')
+      : '<li class="muted">ninguna en el radio</li>';
+    $('save').disabled = false;
+  }
+  if (data.done) { clearInterval(polling); polling = null; $('go').disabled = false; }
+}
+
+$('go').onclick = async () => {
+  $('go').disabled = true;
+  $('save').disabled = true;
+  $('map').hidden = true;
+  $('placeholder').hidden = false;
+  $('placeholder').textContent = 'Generando el mundo…';
+  const res = await fetch('/api/generate', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ seed: $('seed').value, radius: Number($('radius').value) })
+  });
+  if (!res.ok) { const e = await res.json(); $('status').textContent = e.error; $('go').disabled = false; return; }
+  if (!polling) polling = setInterval(poll, 2000);
+  poll();
+};
+
+$('save').onclick = async () => {
+  $('save').disabled = true;
+  $('savestatus').textContent = 'Guardando…';
+  const res = await fetch('/api/save', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ notes: $('notes').value })
+  });
+  const data = await res.json();
+  $('savestatus').textContent = data.error ? data.error : 'Guardada en ' + data.saved;
+  if (!data.error) setTimeout(() => location.reload(), 900);
+};
+
+if ({{ 'true' if job and not job.done else 'false' }}) { polling = setInterval(poll, 2000); poll(); }
+</script>
+</body>
+</html>
