@@ -30,6 +30,20 @@ La interfaz da: semilla usada, mapa de biomas, lista de biomas con su porcentaje
 detectadas con su centro, un campo de notas y el botón de guardar. El botón **Generar** sin
 semilla sortea una.
 
+## Cuánto tarda
+
+Medido el 2026-09-22 sobre DeceasedCraft con 340 mods, radio 256:
+
+| Fase | Tiempo |
+|---|---|
+| Arranque del servidor | 83 s |
+| Chunky (1089 chunks) | 14 s |
+| Parada, lectura, ciudades y render | ~60 s |
+| **Total por semilla** | **~2m40s** |
+
+El arranque son 83 s fijos; lo demás escala con el área. Radio 512 ronda los 3m30s y radio 768
+unos 5 minutos.
+
 ## Qué guarda
 
 Una carpeta por semilla en `~/Documentos/Minecraft/SeedScout/<semilla>/`:
