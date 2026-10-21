@@ -12,14 +12,14 @@ DEFAULT_PATH = Path.home() / ".config" / "seedscout" / "config.json"
 class Config:
     """`base_server` es una instalación ya montada y probada; SeedScout nunca escribe en ella."""
 
-    base_server: str = "/media/sotano/Media/Documentos/ClaudeCode/Minecraft/Modpacks/CNNY-Server/server/dc-test"
+    base_server: str = str(Path.home() / "minecraft" / "servidor-modpack")
     java: str = "/usr/lib/jvm/java-17-temurin/bin/java"
     forge_args: str = "libraries/net/minecraftforge/forge/1.20.1-47.4.10/unix_args.txt"
     jvm_args: list[str] = field(default_factory=lambda: ["-Xms2G", "-Xmx6G"])
     work_dir: str = str(Path.home() / ".local" / "share" / "seedscout" / "runs")
     seeds_dir: str = str(Path.home() / "Documentos" / "Minecraft" / "SeedScout")
     # Jar del cliente: de ahí salen los colores de bloque y los colormaps de hierba y follaje.
-    client_jar: str = "/media/sotano/Juegos/Fijos/Minecraft/PrismLauncher/libraries/com/mojang/minecraft/1.20.1/minecraft-1.20.1-client.jar"
+    client_jar: str = str(Path.home() / ".minecraft" / "versions" / "1.20.1" / "1.20.1.jar")
     radius: int = 768
     # "spawn" centra el mapa donde aparece el jugador; "origin" en 0,0. En DeceasedCraft el spawn
     # lo decide Lost Cities (forceSpawnBuildings) y suele caer a más de 1000 bloques del origen,
