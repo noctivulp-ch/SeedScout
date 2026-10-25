@@ -20,6 +20,13 @@ el mapa que dan es el de otro juego. SeedScout no simula la generación: **arran
 real del modpack**, pregenera un radio con Chunky y dibuja el mapa a partir de los archivos del
 mundo. Lo que se ve es lo que se va a jugar.
 
+<p align="center">
+  <img src="docs/capturas/compartir-1.png" width="58%" alt="Mapa de una semilla con su reparto de biomas">
+  <img src="docs/capturas/compartir-2.png" width="38%" alt="Mapa de una semilla con ciudades de Lost Cities">
+</p>
+
+<p align="center"><sub>Imágenes para compartir que genera SeedScout, de dos semillas de prueba en DeceasedCraft. Se arman con <code>tools/capturas/capturas.py</code>.</sub></p>
+
 ## Funciones principales
 
 - Mapa pintado como los mapeadores del juego: color del bloque, tinte de bioma, agua por
